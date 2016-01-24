@@ -27,9 +27,7 @@ function New-PesterState
         $TestNameFilter = $_testNameFilter
 
         $script:SessionState = $_sessionState
-        $script:CurrentContext = ""
-        $script:CurrentDescribe = ""
-        $script:CurrentTest = ""
+        $script:PesterStack = New-Object System.Collections.Stack
         $script:Stopwatch = [System.Diagnostics.Stopwatch]::StartNew()
         $script:MostRecentTimestamp = 0
         $script:CommandCoverage = @()
@@ -41,6 +39,7 @@ function New-PesterState
         $script:Quiet = $Quiet
 
         $script:TestResult = @()
+        $script:TestTree = @()
 
         $script:TotalCount = 0
         $script:Time = [timespan]0
@@ -57,72 +56,74 @@ function New-PesterState
         $script:SafeCommands['Export-ModuleMember'] = & (Pester\SafeGetCommand) -Name Export-ModuleMember -Module Microsoft.PowerShell.Core    -CommandType Cmdlet
         $script:SafeCommands['Add-Member']          = & (Pester\SafeGetCommand) -Name Add-Member          -Module Microsoft.PowerShell.Utility -CommandType Cmdlet
 
-        function EnterDescribe([string]$Name)
+        function Assert-StackFrameInProgress
         {
-            if ($CurrentDescribe)
+            param (
+                [Parameter(Mandatory = $true)]
+                [string] $From,
+
+                [Parameter(Mandatory = $true)]
+                [ValidateSet('TestGroup', 'TestCase')]
+                [string] $FrameType
+            )
+
+            if ($script:PesterStack.Count -le 0)
             {
-                throw & $SafeCommands['New-Object'] InvalidOperationException "You already are in Describe, you cannot enter Describe twice"
+                throw "$From called when test stack was empty."
             }
-            $script:CurrentDescribe = $Name
+
+            $frame = $script:PesterStack.Peek()
+
+            if ($frame -isnot [System.Collections.IDictionary] -or -not $frame.Contains('Type'))
+            {
+                throw "$From encountered an invalid test stack frame."
+            }
+
+            if ($frame['Type'] -ne $FrameType)
+            {
+                throw "$From called when the current test stack frame was not a $FrameType frame.  Current frame type: '$($frame['Type'])'"
+            }
+
         }
 
-        function LeaveDescribe
+        function EnterTestGroup([string] $Name, [string] $TypeHint, [string[]] $Tags = @())
         {
-            if ( $CurrentContext ) {
-                throw & $SafeCommands['New-Object'] InvalidOperationException "Cannot leave Describe before leaving Context"
+            $frame = @{
+                Name     = $Name
+                TypeHint = $TypeHint
+                Type     = 'TestGroup'
+                Tags     = $Tags
             }
 
-            $script:CurrentDescribe = $null
+            $script:PesterStack.Push($frame)
         }
 
-        function EnterContext([string]$Name)
+        function LeaveTestGroup()
         {
-            if ( -not $CurrentDescribe )
-            {
-                throw & $SafeCommands['New-Object'] InvalidOperationException "Cannot enter Context before entering Describe"
-            }
+            Assert-StackFrameInProgress -From 'PesterState.LeaveTestGroup()' -FrameType TestGroup
 
-            if ( $CurrentContext )
-            {
-                throw & $SafeCommands['New-Object'] InvalidOperationException "You already are in Context, you cannot enter Context twice"
-            }
-
-            if ($CurrentTest)
-            {
-                throw & $SafeCommands['New-Object'] InvalidOperationException "You already are in It, you cannot enter Context inside It"
-            }
-
-            $script:CurrentContext = $Name
-        }
-
-        function LeaveContext
-        {
-            if ($CurrentTest)
-            {
-                throw & $SafeCommands['New-Object'] InvalidOperationException "Cannot leave Context before leaving It"
-            }
-
-            $script:CurrentContext = $null
+            $null = $script:PesterStack.Pop()
         }
 
         function EnterTest([string]$Name)
         {
-            if (-not $script:CurrentDescribe)
-            {
-                throw & $SafeCommands['New-Object'] InvalidOperationException "Cannot enter It before entering Describe"
+            Assert-StackFrameInProgress -From 'PesterState.EnterTest()' -FrameType TestGroup
+
+            $frame = @{
+                Name     = $Name
+                TypeHint = $TypeHint
+                Type     = 'TestCase'
+                Tags     = $Tags
             }
 
-            if ( $CurrentTest )
-            {
-                throw & $SafeCommands['New-Object'] InvalidOperationException "You already are in It, you cannot enter It twice"
-            }
-
-            $script:CurrentTest = $Name
+            $script:PesterStack.Push($frame)
         }
 
         function LeaveTest
         {
-            $script:CurrentTest = $null
+            Assert-StackFrameInProgress -From 'PesterState.LeaveTest()' -FrameType TestCase
+
+            $null = $script:PesterStack.Pop()
         }
 
         function AddTestResult
