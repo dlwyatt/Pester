@@ -59,22 +59,36 @@ about_TestDrive
     try
     {
         Add-SetupAndTeardown -ScriptBlock $Fixture
-        Invoke-TestGroupSetupBlocks -Scope $pester.Scope
 
-        do
-        {
-            $null = & $Fixture
-        } until ($true)
+        $scriptBlock = {
+            param (
+                ${Pester Module},
+                ${Script Block}
+            )
+            try
+            {
+                & ${Pester Module} { Invoke-TestGroupSetupBlocks -Scope $pester.Scope }
+
+                do
+                {
+                    $null = . ${Script Block}
+                } until ($true)
+            }
+            finally
+            {
+                & ${Pester Module} { Invoke-TestGroupTeardownBlocks -Scope $pester.Scope }
+            }
+        }
+
+        Set-ScriptBlockScope -ScriptBlock $scriptBlock -SessionState $pester.SessionState
+
+        & $scriptBlock $ExecutionContext.SessionState.Module $Fixture
     }
     catch
     {
         $firstStackTraceLine = $_.InvocationInfo.PositionMessage.Trim() -split '\r?\n' | & $SafeCommands['Select-Object'] -First 1
         $Pester.AddTestResult('Error occurred in Context block', "Failed", $null, $_.Exception.Message, $firstStackTraceLine, $null, $null, $_)
         $Pester.TestResult[-1] | Write-PesterResult
-    }
-    finally
-    {
-        Invoke-TestGroupTeardownBlocks -Scope $pester.Scope
     }
 
     Clear-SetupAndTeardown

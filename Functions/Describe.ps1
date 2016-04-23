@@ -96,12 +96,30 @@ about_TestDrive
         $testDriveAdded = $true
 
         Add-SetupAndTeardown -ScriptBlock $Fixture
-        Invoke-TestGroupSetupBlocks -Scope $pester.Scope
 
-        do
-        {
-            $null = & $Fixture
-        } until ($true)
+        $scriptBlock = {
+            param (
+                ${Pester Module},
+                ${Script Block}
+            )
+            try
+            {
+                & ${Pester Module} { Invoke-TestGroupSetupBlocks -Scope $pester.Scope }
+
+                do
+                {
+                    $null = . ${Script Block}
+                } until ($true)
+            }
+            finally
+            {
+                & ${Pester Module} { Invoke-TestGroupTeardownBlocks -Scope $pester.Scope }
+            }
+        }
+
+        Set-ScriptBlockScope -ScriptBlock $scriptBlock -SessionState $pester.SessionState
+
+        & $scriptBlock $ExecutionContext.SessionState.Module $Fixture
     }
     catch
     {
@@ -111,7 +129,6 @@ about_TestDrive
     }
     finally
     {
-        Invoke-TestGroupTeardownBlocks -Scope $pester.Scope
         if ($testDriveAdded) { Remove-TestDrive }
     }
 

@@ -412,7 +412,8 @@ function ConvertTo-FailureLines
             & $SafeCommands['Select-Object'] -First $count |
             & $SafeCommands['Where-Object'] {
                 $_ -notmatch '^at Should<End>, .*\\Functions\\Assertions\\Should.ps1: line [0-9]*$' -and
-                $_ -notmatch '^at Assert-MockCalled, .*\\Functions\\Mock.ps1: line [0-9]*$'
+                $_ -notmatch '^at Assert-MockCalled, .*\\Functions\\Mock.ps1: line [0-9]*$' -and
+                $_ -notmatch '^at <ScriptBlock>, .*\\Functions\\(?:Context|Describe)\.ps1'
             }
 
         return $lines
